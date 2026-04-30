@@ -24,26 +24,48 @@ TEXTO_HEADER = "#FFFFFF"
 # FUNCIONES DE TASAS / DEGRAVAMEN
 # --------------------------
 def obtener_tasa_semanal(capital, cuotas):
-    opciones = [2, 3, 4]
-    cuotas_closest = min(opciones, key=lambda x: abs(x - cuotas))
-    if 10 < capital <= 200:
-        if cuotas_closest == 2: return 0.04
-        if cuotas_closest == 3: return 0.03
-        if cuotas_closest == 4: return 0.025
-    elif 200 < capital <= 400:
-        if cuotas_closest == 2: return 0.02
-        if cuotas_closest == 3: return 0.0167
-        if cuotas_closest == 4: return 0.015
-    elif 400 < capital <= 600:
-        if cuotas_closest == 2: return 0.025
-        if cuotas_closest == 3: return 0.02
-        if cuotas_closest == 4: return 0.0175
-    return 0.03
+
+    # Determinar tipo de letra según número de cuotas
+    if cuotas <= 2:
+        tipo = 2
+    elif cuotas == 3:
+        tipo = 3
+    else:
+        tipo = 4  # desde cuota 4 hasta el máximo
+
+    # RANGO 1
+    if 0 < capital <= 500:
+        if tipo == 2:
+            return 0.04
+        elif tipo == 3:
+            return 0.035
+        else:
+            return 0.0275
+
+    # RANGO 2
+    elif 500 < capital <= 1000:
+        if tipo == 2:
+            return 0.03
+        elif tipo == 3:
+            return 0.025
+        else:
+            return 0.02
+
+    # RANGO 3
+    elif 1000 < capital <= 2500:
+        if tipo == 2:
+            return 0.02
+        elif tipo == 3:
+            return 0.02
+        else:
+            return 0.015
+
+    return 0.02
 
 def obtener_porcentaje_degravamen(capital):
-    if capital <= 200:
+    if capital <= 500:
         return 0.008
-    elif capital <= 400:
+    elif capital <= 1000:
         return 0.01
     else:
         return 0.015
@@ -123,6 +145,8 @@ def generar_cronograma(nombre, dni, direccion, capital, cuotas, degrav_mode="pro
 
     df = pd.DataFrame(filas)
 
+    cuota_fija_real = round(cuota_fija + prorrateos[0], 2)
+
     resumen = {
         "Nombre": nombre,
         "DNI": dni,
@@ -130,7 +154,7 @@ def generar_cronograma(nombre, dni, direccion, capital, cuotas, degrav_mode="pro
         "Capital Inicial (S/)": capital,
         "Tasa semanal (%)": round(tasa * 100, 3),
         "N° Cuotas": cuotas,
-        "Cuota fija (S/)": round(cuota_fija, 2),
+        "Cuota fija (S/)": round(cuota_fija + prorrateos[0], 2),
         "Interés Total (S/)": round(interes_total, 2),
         "Degravamen Total (S/)": degrav_total,
         "Total a Pagar (S/)": round(suma_cuotas_final, 2)
@@ -204,37 +228,78 @@ def header():
 # --------------------------
 header()
 
+import streamlit as st
+
+# Guardar resultados en memoria
+if "df" not in st.session_state:
+    st.session_state.df = None
+
+if "resumen" not in st.session_state:
+    st.session_state.resumen = None
+
+if "calcular" not in st.session_state:
+    st.session_state.calcular = False
+
 col1, col2 = st.columns([2, 3])
 
 with col1:
     st.markdown("### 📋 Datos del socio")
-    with st.form("datos_form"):
-        nombre = st.text_input("Nombre completo")
-        dni = st.text_input("DNI")
-        direccion = st.text_input("Dirección")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            capital = st.number_input("Monto del préstamo (S/)", min_value=10.0, step=10.0, value=200.0)
-        with col_b:
-            cuotas = st.number_input("N° de cuotas (semanas)", min_value=1, step=1, value=3)
-        degrav_mode = st.selectbox("Cómo cobrar Degravamen?", ("prorated", "upfront"))
-        submitted = st.form_submit_button("Calcular Cronograma")
 
+    nombre = st.text_input("Nombre completo")
+    dni = st.text_input("DNI")
+    direccion = st.text_input("Dirección")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        capital = st.number_input("Monto del préstamo (S/)", min_value=10.0, step=10.0, value=200.0)
+
+    with col_b:
+        cuotas = st.number_input("N° de cuotas (semanas)", min_value=1, step=1, value=3)
+
+    # Validar máximo de cuotas según capital
+    if capital <= 500 and cuotas > 8:
+        st.error("Para préstamos hasta S/500 el máximo es 8 cuotas")
+
+    elif capital <= 1000 and cuotas > 10:
+        st.error("Para préstamos hasta S/1000 el máximo es 10 cuotas")
+
+    elif capital <= 2500 and cuotas > 16:
+        st.error("Para préstamos hasta S/2500 el máximo es 16 cuotas")
+
+    degrav_mode = st.selectbox(
+        "Cómo cobrar Degravamen?",
+        ("prorated", "upfront")
+    )
+    st.button("Calcular Cronograma", type="primary")
+
+if nombre and dni and direccion:
+    df, resumen = generar_cronograma(
+        nombre, dni, direccion, capital, int(cuotas), degrav_mode
+    )
+
+    st.session_state.df = df
+    st.session_state.resumen = resumen  
+
+df = st.session_state.df
+resumen = st.session_state.resumen
+
+with col1:
     st.markdown("---")
     st.markdown("#### 🧾 Vista previa")
-    if submitted and nombre and dni:
-        df_preview, resumen_preview = generar_cronograma(nombre, dni, direccion, capital, int(cuotas), degrav_mode)
-        st.metric("Total a pagar (S/)", f"{resumen_preview['Total a Pagar (S/)']}")
-        st.write(f"Cuota fija (S/): {resumen_preview['Cuota fija (S/)']}")
-        st.write(f"Interés total (S/): {resumen_preview['Interés Total (S/)']}")
-        st.write(f"Degravamen total (S/): {resumen_preview['Degravamen Total (S/)']}")
+
+    if df is not None:
+        st.metric("Total a pagar (S/)", f"{resumen['Total a Pagar (S/)']}")
+        st.write(f"Cuota fija (S/): {resumen['Cuota fija (S/)']}")
+        st.write(f"Interés total (S/): {resumen['Interés Total (S/)']}")
+        st.write(f"Degravamen total (S/): {resumen['Degravamen Total (S/)']}")
+
     else:
         st.info("Complete el formulario y presione 'Calcular Cronograma' para ver resultados.")
 
 with col2:
     st.markdown("### 📅 Cronograma")
-    if submitted and nombre and dni:
-        df, resumen = generar_cronograma(nombre, dni, direccion, capital, int(cuotas), degrav_mode)
+    if df is not None:
         st.dataframe(df, use_container_width=True)
 
         csv = df.to_csv(index=False).encode('utf-8')
